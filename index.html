@@ -87,7 +87,16 @@
   .paid-bar{height:4px;border-radius:2px;background:var(--border);margin-top:6px;overflow:hidden;}
   .paid-bar-fill{height:100%;background:var(--accent);border-radius:2px;transition:width 0.3s;}
   .payments-log{margin-top:6px;font-size:12px;color:var(--text3);}
-  .payments-log span{display:inline-block;background:var(--accent-bg);color:var(--accent);border-radius:4px;padding:1px 7px;margin:2px 2px 0 0;}
+  .payments-log span{display:inline-flex;align-items:center;gap:4px;background:var(--accent-bg);color:var(--accent);border-radius:4px;padding:1px 7px;margin:2px 2px 0 0;}
+  .del-pay-btn{background:none;border:none;cursor:pointer;color:var(--accent);font-size:13px;line-height:1;padding:0 0 0 2px;opacity:0.6;}
+  .del-pay-btn:hover{opacity:1;color:var(--danger);}
+  /* Edit modal */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:300;padding:16px;}
+  .modal-card{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--radius-lg);padding:28px;max-width:520px;width:100%;}
+  .modal-card h3{margin-bottom:16px;}
+  .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;}
+  .edit-btn{background:none;border:none;cursor:pointer;color:var(--info);padding:4px 6px;border-radius:5px;font-size:14px;line-height:1;}
+  .edit-btn:hover{background:var(--info-bg);}
 
   /* Sync bar */
   .sync-bar{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text3);}
@@ -193,7 +202,28 @@
   <div id="page-is" class="page"></div>
 </div>
 
-<div id="toast"></div>
+<!-- DÜZENLEME MODALI -->
+<div class="modal-overlay" id="edit-modal" style="display:none;">
+  <div class="modal-card">
+    <h3>✏️ Harcamayı Düzenle</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>Tarih</label><input type="date" id="edit-date"></div>
+      <div class="form-group" style="grid-column:span 2"><label>Açıklama</label><input type="text" id="edit-desc"></div>
+      <div class="form-group"><label>Toplam Tutar (₺)</label><input type="number" id="edit-total" min="0" step="0.01"></div>
+      <div class="form-group"><label>Taksit Sayısı</label><input type="number" id="edit-count" min="1"></div>
+      <div class="form-group"><label>İlk Taksit Ayı</label>
+        <select id="edit-startMonth"></select>
+      </div>
+      <div class="form-group"><label>İlk Taksit Yılı</label><input type="number" id="edit-startYear" min="2020" max="2040"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeEditModal()">İptal</button>
+      <button class="btn primary" onclick="saveEdit()">💾 Kaydet</button>
+    </div>
+  </div>
+</div>
+
+
 
 <script>
 // ══════════════════════════════════════════════════════
@@ -441,7 +471,7 @@ function renderCardPage(cardKey) {
       const payments  = Array.isArray(r.payments)?r.payments:[];
 
       const paymentsLog = payments.length
-        ? `<div class="payments-log">${payments.map(p=>`<span title="${p.note||''}">${p.date}: ${fmt(p.amount)}</span>`).join('')}</div>` : '';
+        ? `<div class="payments-log">${payments.map((p,pi)=>`<span title="${p.note||''}">${p.date}: ${fmt(p.amount)}<button class="del-pay-btn" onclick="deletePayment('${cardKey}',${r._idx},${pi})" title="Bu ödemeyi sil">✕</button></span>`).join('')}</div>` : '';
 
       const payForm = rowRem>0.01 ? `
         <div style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap;">
@@ -469,7 +499,10 @@ function renderCardPage(cardKey) {
             ?`<br><span style="font-size:11px;color:var(--danger)">Kalan: ${fmt(rowRem)}</span>`
             :'<br><span class="badge green" style="font-size:11px;">✓ Tamamlandı</span>'}
         </td>
-        <td><button class="delete-btn" onclick="deleteRow('${cardKey}',${r._idx})" title="Sil">✕</button></td>
+        <td>
+          <button class="edit-btn" onclick="openEditModal('${cardKey}',${r._idx})" title="Düzenle">✏️</button>
+          <button class="delete-btn" onclick="deleteRow('${cardKey}',${r._idx})" title="Sil">✕</button>
+        </td>
       </tr>`;
     });
   }
@@ -599,6 +632,62 @@ function addCardPayment(cardKey) {
   });
   pushData(); renderCardPage(cardKey); renderOzet();
   toast(`✓ ${fmt(amt)} ödeme dağıtıldı`);
+}
+
+function deletePayment(cardKey, rowIdx, payIdx) {
+  if (!confirm('Bu ödemeyi silmek istiyor musunuz?')) return;
+  const row = appData[cardKey][rowIdx];
+  if (!Array.isArray(row.payments) || !row.payments[payIdx]) return;
+  const amt = parseFloat(row.payments[payIdx].amount)||0;
+  row.payments.splice(payIdx, 1);
+  row.paid = Math.max(0, (parseFloat(row.paid)||0) - amt);
+  pushData(); renderCardPage(cardKey); renderOzet();
+  toast('Ödeme silindi');
+}
+
+// Edit modal state
+let _editCardKey = null, _editRowIdx = null;
+
+function openEditModal(cardKey, rowIdx) {
+  _editCardKey = cardKey; _editRowIdx = rowIdx;
+  const r = appData[cardKey][rowIdx];
+  const sel = document.getElementById('edit-startMonth');
+  if (!sel.options.length) {
+    ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık']
+      .forEach((m,i) => sel.add(new Option(m, i+1)));
+  }
+  document.getElementById('edit-date').value        = (r.date||'').toString().split('T')[0];
+  document.getElementById('edit-desc').value        = r.desc||'';
+  document.getElementById('edit-total').value       = r.total||'';
+  document.getElementById('edit-count').value       = r.count||1;
+  document.getElementById('edit-startMonth').value  = r.startMonth||1;
+  document.getElementById('edit-startYear').value   = r.startYear||new Date().getFullYear();
+  document.getElementById('edit-modal').style.display = 'flex';
+}
+
+function closeEditModal() {
+  document.getElementById('edit-modal').style.display = 'none';
+  _editCardKey = null; _editRowIdx = null;
+}
+
+function saveEdit() {
+  if (_editCardKey === null || _editRowIdx === null) return;
+  const r = appData[_editCardKey][_editRowIdx];
+  const newTotal = parseFloat(document.getElementById('edit-total').value);
+  if (!newTotal || newTotal <= 0) { toast('Tutar gerekli'); return; }
+  const desc = document.getElementById('edit-desc').value.trim();
+  if (!desc) { toast('Açıklama gerekli'); return; }
+  r.date       = document.getElementById('edit-date').value;
+  r.desc       = desc;
+  r.total      = newTotal;
+  r.count      = parseInt(document.getElementById('edit-count').value)||1;
+  r.startMonth = parseInt(document.getElementById('edit-startMonth').value)||1;
+  r.startYear  = parseInt(document.getElementById('edit-startYear').value)||new Date().getFullYear();
+  // Ödenen tutarı yeni toplamı aşmasın
+  if ((parseFloat(r.paid)||0) > newTotal) r.paid = newTotal;
+  closeEditModal();
+  pushData(); renderCardPage(_editCardKey); renderOzet();
+  toast('✓ Harcama güncellendi');
 }
 
 // ══════════════════════════════════════════════════════
