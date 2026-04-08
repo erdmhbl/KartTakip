@@ -441,13 +441,14 @@ function renderOzet() {
 // ══════════════════════════════════════════════════════
 function renderCardPage(cardKey) {
   const el   = document.getElementById('page-'+cardKey);
+  // _idx = orijinal appData index (sıralamadan önce atanır)
   const rows = (appData[cardKey]||[])
     .map((r,i) => ({...r, _idx:i}))
     .sort((a,b) => {
       const da = (a.date||'').toString().split('T')[0];
       const db = (b.date||'').toString().split('T')[0];
       if (db !== da) return db > da ? 1 : -1;
-      return (b.addedAt||b._idx) - (a.addedAt||a._idx);
+      return (b.addedAt||0) - (a.addedAt||0);
     });
   const totalBorc  = rows.reduce((s,r)=>s+(parseFloat(r.total)||0),0);
   const totalPaid  = rows.reduce((s,r)=>s+(parseFloat(r.paid)||0),0);
@@ -584,7 +585,6 @@ function addRow(cardKey) {
     payments: paidAmt>0 ? [{date:new Date().toLocaleDateString('tr-TR'),amount:paidAmt,note:'Başlangıç ödemesi'}] : [],
     addedAt: Date.now()
   });
-  appData[cardKey].sort((a,b) => (b.addedAt||0) - (a.addedAt||0));
   pushData(); renderCardPage(cardKey); renderOzet();
   toast('Harcama eklendi');
 }
@@ -596,12 +596,13 @@ function deleteRow(cardKey,idx) {
   toast('Silindi');
 }
 
-function addPayment(cardKey,rowIdx) {
+function addPayment(cardKey, rowIdx) {
   const amtEl  = document.getElementById(`pay-amt-${cardKey}-${rowIdx}`);
   const noteEl = document.getElementById(`pay-note-${cardKey}-${rowIdx}`);
-  const amt    = parseFloat(amtEl.value);
+  const amt    = parseFloat(amtEl ? amtEl.value : 0);
   if (!amt||amt<=0) { toast('Geçerli bir tutar girin'); return; }
   const row  = appData[cardKey][rowIdx];
+  if (!row) { toast('Satır bulunamadı'); return; }
   const rem  = (parseFloat(row.total)||0)-(parseFloat(row.paid)||0);
   if (amt>rem+0.01) { toast('Ödeme kalan borçtan fazla olamaz'); return; }
   row.paid = (parseFloat(row.paid)||0)+amt;
